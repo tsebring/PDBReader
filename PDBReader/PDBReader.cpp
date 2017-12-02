@@ -210,7 +210,10 @@ void DumpFreeFunctions(IDiaSymbol* pgSymbol)
 			if (pSymbol->get_addressOffset(&dwOffset) != S_OK)
 				return;
 
-			jsonDump["structures"]["Global"][strName] = dwOffset;
+			jsonDump["structures"]["Global"][strName] = nlohmann::json({
+				{ "offset", dwOffset },
+				{ "kind", "globalfunction" }
+			});
 		}
 
 		SysFreeString(bstrName);
@@ -308,15 +311,7 @@ void DumpData(IDiaSymbol* pSymbol, const std::string& structure)
 	if (pSymbol->get_locationType(&dwLocType) != S_OK)
 		return;
 
-	if (dwLocType != LocIsThisRel)
-		return;
-
-	LONG offset;
-	if (pSymbol->get_offset(&offset) != S_OK)
-		return;
-
-	BSTR bstrName;
-	if (pSymbol->get_name(&bstrName) != S_OK)
+	if (dwLocType != LocIsThisRel && dwLocType != LocIsBitField)
 		return;
 
 	IDiaSymbol* pType;
@@ -325,16 +320,50 @@ void DumpData(IDiaSymbol* pSymbol, const std::string& structure)
 
 	if (pType)
 	{
+		auto field = nlohmann::json({
+			{ "kind", dwLocType == LocIsThisRel ? "field" : dwLocType == LocIsBitField ? "bitfield" : "" }
+		});
+
+		LONG offset;
+		if (pSymbol->get_offset(&offset) != S_OK)
+			return;
+
+		field["offset"] = offset;
+
+		if (dwLocType == LocIsBitField)
+		{
+			DWORD bitPosition;
+			if (pSymbol->get_bitPosition(&bitPosition) != S_OK)
+				return;
+
+			ULONGLONG numbits;
+			if (pSymbol->get_length(&numbits) != S_OK)
+				return;
+
+			field["numbits"] = numbits;
+			field["bitposition"] = bitPosition;
+		}
+
+		ULONGLONG length;
+		if (pType->get_length(&length) != S_OK)
+			return;
+
+		field["length"] = length;
+
+		BSTR bstrName;
+		if (pSymbol->get_name(&bstrName) != S_OK)
+			return;
+
 		char* pszConvertedCharStr = ConvertBSTRToLPSTR(bstrName);
 		std::string strName(pszConvertedCharStr);
 		delete[] pszConvertedCharStr;
 
-		jsonDump["structures"][structure][strName] = offset;
+		jsonDump["structures"][structure][strName] = field;
+
+		SysFreeString(bstrName);
 	}
 
 	pType->Release();
-
-	SysFreeString(bstrName);
 }
 
 std::string GetName(IDiaSymbol* pSymbol)
@@ -385,7 +414,10 @@ void DumpFunction(IDiaSymbol* pSymbol, const std::string& structure)
 	if (strName.find("exec") != std::string::npos) // Filter out functions with "exec" prefix
 		return;
 
-	jsonDump["structures"][structure][strName] = dwOffset;
+	jsonDump["structures"][structure][strName] = nlohmann::json({
+		{ "offset", dwOffset },
+		{ "kind", "method" }
+	});
 
 	SysFreeString(bstrName);
 }
